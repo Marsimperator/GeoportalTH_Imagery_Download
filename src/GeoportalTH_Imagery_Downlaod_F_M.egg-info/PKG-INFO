@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: GeoportalTH-Imagery-Downlaod-F-M
-Version: 1.0.0
+Version: 1.0.1
 Summary: A package for downloading Orthophotos and Digital Elevation Models from the Thuringian Geoportal
 Home-page: https://github.com/friedmag-m/GeoportalTH_Imagery_Download
 Author: Marcel Felix & Friederike Metz
