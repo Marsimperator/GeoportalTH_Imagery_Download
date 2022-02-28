@@ -19,7 +19,7 @@ import pandas as pd
 def GeoportalTh_execute(shapefile:str, year:int, dem_format:str, idfile:str):
     """Main execution function. 
     
-        Executes a chain of modules which identify DEm and Op tiles, downloads
+        Executes a chain of modules which identify DEM and Op tiles, downloads
         them and uses the shapefile to clip resulting rasters to a custom extent.
         
         Parameters
@@ -29,7 +29,7 @@ def GeoportalTh_execute(shapefile:str, year:int, dem_format:str, idfile:str):
         year : int
             The year from which to download DEM and OP
         dem_format : str
-            The format of the DEM data (dgm / dom / las)
+            The format of the DEM data (dgm / dom)
         idfile : str
             Path to the file containing IDs, years and tile names
     """
@@ -166,9 +166,9 @@ def Intersection(dem_year:str, shapefile:str):
             geom2 = poly2[1].geometry
             
             if geom.overlaps(geom2) == True:
-                ############### SPYDER VARIANTE ##################
-                #end = len(poly[1].DGM_1X1)
-                #tiles.append(poly[1].DGM_1X1[2:end])
+                # alternative variant
+                # end = len(poly[1].DGM_1X1)
+                # tiles.append(poly[1].DGM_1X1[2:end])
                 tiles.append(poly[1].NAME)
     return tiles              
 
@@ -177,8 +177,8 @@ def Intersection(dem_year:str, shapefile:str):
 def DEM_download(tiles:list, dem_format:str, dem_year:str):
     """DEM download function.
         
-        Takes the identified AOI tiles and searches the lookup table for the 
-        proper IDs to send download requests to the server.
+        Takes the identified AOI tiles and creates a proper download requests 
+        for sending to the server.
         After the download the files are unzipped.
         
         Parameters
@@ -186,7 +186,7 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
         tiles : list
             A list of DEM tile names which intersect the AOI
         dem_format : str
-            The format of the DEM data (dgm / dom / las)
+            The format of the DEM data (dgm / dom)
         dem_year : str
             A string defining which DEM grid basis to use
     """
@@ -203,8 +203,8 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
         # creating request url
         if dem_format == "dgm" or dem_format == "dom":
             request = "https://geoportal.geoportal-th.de/hoehendaten/" + dem_format.upper() + "/" + dem_format + "_" + dem_year + "/" + dem_format + "1_" + tile + "_1_th_" + dem_year + ".zip"
-        elif dem_format == "las": 
-            request = "https://geoportal.geoportal-th.de/hoehendaten/" + dem_format.upper() + "/" + dem_format + "_" + dem_year + "/" + dem_format + "_" + tile + "_1_th_" + dem_year + ".zip+"
+        #elif dem_format == "las": 
+        #    request = "https://geoportal.geoportal-th.de/hoehendaten/" + dem_format.upper() + "/" + dem_format + "_" + dem_year + "/" + dem_format + "_" + tile + "_1_th_" + dem_year + ".zip+"
         
         # download the file
         current_dem = "../Data/dem/"+tile+".zip"
@@ -337,7 +337,7 @@ def Merging_Tiles():
         gdal.Translate(outname + ".tif", xyz, outputSRS="EPSG:25832")
     
     # DEM merging
-    # build virtual raster and convert to geotiff
+    # build virtual raster and merge
     demlist = [file.replace(".xyz",".tif") for file in demlist]
     vrt = gdal.BuildVRT("../Data/dem/merged.vrt", demlist)
     gdal.Translate("../Data/dem/mergedDEM.tif", vrt, xRes = 1, yRes = -1)
@@ -378,7 +378,7 @@ if __name__ == "__main__":
     # specify AOI via shapefile
     shapefile = "../Data/shape/shape.shp"
     
-    # specify which DEM-type you want (dgm / dom / las)
+    # specify which DEM-type you want (dgm / dom)
     dem_format = "dgm"
     
     # specify the year from which data should be downloaded
