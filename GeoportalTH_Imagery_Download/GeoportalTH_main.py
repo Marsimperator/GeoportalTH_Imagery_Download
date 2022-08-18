@@ -7,16 +7,15 @@
 """
 
 import os
-from osgeo import ogr,osr,gdal
+from osgeo import gdal
 import geopandas
-import shapely
 import zipfile
 from shapely.geometry import Polygon, LineString, Point
 import requests
 import pandas as pd
 
 
-def GeoportalTh_execute(shapefile:str, year:int, dem_format:str, idfile:str):
+def GeoportalTh_execute(root:str, shapefile:str, year:int, dem_format:str, idfile:str):
     """Main execution function. 
     
         Executes a chain of modules which identify DEM and Op tiles, downloads
@@ -24,6 +23,8 @@ def GeoportalTh_execute(shapefile:str, year:int, dem_format:str, idfile:str):
         
         Parameters
         ----------
+        root : str
+            Root directory
         shapefile : str
             The path to the shapefile representing the AOI
         year : int
@@ -33,32 +34,37 @@ def GeoportalTh_execute(shapefile:str, year:int, dem_format:str, idfile:str):
         idfile : str
             Path to the file containing IDs, years and tile names
     """
-    
+ 
+    # provide new paths
+    data_dir = os.path.join(root, "Data")
+    dem_dir = os.path.join(data_dir, "dem")
+    op_dir = os.path.join(data_dir, "op")   
+ 
     # Get the Grid file url and years
     request, dem_year = DEM_Year(year)
     
     # Automated DOWNLOAD OF TILE POLYGONS
-    Tile_Grid_Download(dem_year, request)
+    Tile_Grid_Download(data_dir, dem_year, request)
     
     # Intersection of shapefile with dem tile polygons
-    tiles = Intersection(dem_year, shapefile)
+    tiles = Intersection(data_dir, dem_year, shapefile)
     
     # Download of dem tiles
-    DEM_download(tiles, dem_format, dem_year)
+    DEM_download(dem_dir, tiles, dem_format, dem_year)
     
     # Download of op tiles
-    OP_download(tiles, year, idfile)
+    OP_download(op_dir, tiles, year, idfile)
     
     # Conversion & Merge of DEM
-    Merging_Tiles()
+    Merging_Tiles(dem_dir, op_dir)
     
     # clipping DEM & OP with shapefile
-    Clip_rasters("../Data/op/mergedOP.tif", 
-                 "../Data/op/mergedOP_clip.tif", 
+    Clip_rasters(os.path.join(op_dir, "mergedOP.tif"), 
+                 os.path.join(op_dir, "mergedOP_clip.tif"), 
                  options = {"cutlineDSName":shapefile, "cropToCutline":True, 
                             "dstNodata":0, "dstSRS":"EPSG:25832"})
-    Clip_rasters("../Data/dem/mergedDEM.tif", 
-                 "../Data/dem/mergedDEM_clip.tif", 
+    Clip_rasters(os.path.join(dem_dir, "mergedDEM.tif"), 
+                 os.path.join(dem_dir, "mergedDEM_clip.tif"), 
                  options = {"cutlineDSName":shapefile, "cropToCutline":True, 
                             "dstNodata":0, "dstSRS":"EPSG:25832"})
 
@@ -94,11 +100,13 @@ def DEM_Year(year:int):
     elif year <= 2025:
         request = "https://geoportal.geoportal-th.de/hoehendaten/Uebersichten/Stand_2020-2025.zip"
         dem_year = "2020-2025"
+    else: raise ValueError("The provided year is not yet supported with an URL")
+    
     return request, dem_year
 
 
 
-def Tile_Grid_Download(dem_year:str, request:str):
+def Tile_Grid_Download(data_dir:str, dem_year:str, request:str):
     """Downlaoding DEM tiles.
         
         This function downloads a DEM tile grid from a specified year using a 
@@ -106,18 +114,20 @@ def Tile_Grid_Download(dem_year:str, request:str):
         
         Parameters
         ----------
+        data_dir : str
+            A directory where the grid folder & files will be saved 
         dem_year : str
             A string defining which DEM grid basis to use
         request : str
             The request url to send to the server 
     """
     
-    if not os.path.exists("../Data/"):
-        os.mkdir("../Data/")
-    if not os.path.exists("../Data/Stand_"+dem_year):
-        os.mkdir("../Data/Stand_"+dem_year)
+    if not os.path.exists(data_dir):
+        os.mkdir(data_dir)
+    if not os.path.exists(os.path.join(data_dir, "Stand_"+dem_year)):
+        os.mkdir(os.path.join(data_dir, "Stand_"+dem_year))
     
-    gridfile = "../Data/Stand_"+dem_year+"/Stand_"+dem_year+".zip"
+    gridfile = os.path.join(data_dir, "Stand_"+dem_year, "Stand_"+dem_year+".zip")
     
     # download the grid if needed
     if not os.path.exists(gridfile):
@@ -127,11 +137,11 @@ def Tile_Grid_Download(dem_year:str, request:str):
     
     # unzip the downloaded content
     with zipfile.ZipFile(gridfile, 'r') as zip_ref:
-        zip_ref.extractall("../Data/Stand_"+dem_year)
+        zip_ref.extractall(os.path.join(data_dir, "Stand_"+dem_year))
          
 
 
-def Intersection(dem_year:str, shapefile:str):
+def Intersection(data_dir:str, dem_year:str, shapefile:str):
     """Intersection of AOI and grid.
         
         Intersects the given AOI shapefile with the grid of DEM tiles to 
@@ -139,6 +149,8 @@ def Intersection(dem_year:str, shapefile:str):
         
         Parameters
         ----------
+        data_dir : str
+            A directory where the grid folders with files are located 
         dem_year : str
             A string defining which DEM grid basis to use
         shapefile : str
@@ -152,11 +164,12 @@ def Intersection(dem_year:str, shapefile:str):
     
     polygon = geopandas.read_file(shapefile)
     if dem_year == "2010-2013":
-        grid_path = "../Data/Stand_2010-2013/DGM2_2010-2013_Erfass-lt-Meta_UTM32-UTM_2014-12-10.shp"
+        grid_path = os.path.join(data_dir, "Stand_2010-2013", "DGM2_2010-2013_Erfass-lt-Meta_UTM32-UTM_2014-12-10.shp")
     elif dem_year == "2014-2019":
-        grid_path = "../Data/Stand_2014-2019/DGM1_2014-2019_Erfass-lt-Meta_UTM_2020-04-20--17127.shp"
-    else:
-        grid_path = "../Data/Stand_2020-2025/DGM1_2020-2025_Erfass-lt-Meta_UTM_2021-03--17127.shp"
+        grid_path = os.path.join(data_dir, "Stand_2014-2019", "DGM1_2014-2019_Erfass-lt-Meta_UTM_2020-04-20--17127.shp")
+    elif dem_year == "2020-2025":
+        grid_path = os.path.join(data_dir, "Stand_2020-2025", "DGM1_2020-2025_Erfass-lt-Meta_UTM_2021-03--17127.shp")
+    else: raise ValueError("The provided timeframe is not yet supported by this function.")
     grid = geopandas.read_file(grid_path)
     
     tiles = []
@@ -174,7 +187,7 @@ def Intersection(dem_year:str, shapefile:str):
 
 
 
-def DEM_download(tiles:list, dem_format:str, dem_year:str):
+def DEM_download(dem_dir:str, tiles:list, dem_format:str, dem_year:str):
     """DEM download function.
         
         Takes the identified AOI tiles and creates a proper download requests 
@@ -183,6 +196,8 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
         
         Parameters
         ----------
+        dem_dir : str
+            A directory where the DEM files will be saved
         tiles : list
             A list of DEM tile names which intersect the AOI
         dem_format : str
@@ -195,10 +210,8 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
         tile = str(tile)
         
         # create dir if necessary
-        if not os.path.exists("../Data/"):
-            os.mkdir("../Data/")
-        if not os.path.exists("../Data/dem/"):
-            os.mkdir("../Data/dem/")
+        if not os.path.exists(dem_dir):
+            os.mkdir(dem_dir)
         
         # creating request url
         if dem_format == "dgm" or dem_format == "dom":
@@ -207,11 +220,11 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
         #    request = "https://geoportal.geoportal-th.de/hoehendaten/" + dem_format.upper() + "/" + dem_format + "_" + dem_year + "/" + dem_format + "_" + tile + "_1_th_" + dem_year + ".zip+"
         
         # download the file
-        current_dem = "../Data/dem/"+tile+".zip"
+        current_dem = os.path.join(dem_dir, tile+".zip")
         # if already there, unzip and then continue with the next tile
         if os.path.exists(current_dem):
             with zipfile.ZipFile(current_dem, 'r') as zip_ref:
-                zip_ref.extractall("../Data/dem/")
+                zip_ref.extractall(dem_dir)
             continue
         
         dem_load = requests.get(request)
@@ -226,11 +239,11 @@ def DEM_download(tiles:list, dem_format:str, dem_year:str):
     
         # unzipping
         with zipfile.ZipFile(current_dem, 'r') as zip_ref:
-            zip_ref.extractall("../Data/dem/")
+            zip_ref.extractall(dem_dir)
 
 
 
-def OP_download(tiles:list, year:int, idfile:str):
+def OP_download(op_dir:str, tiles:list, year:int, idfile:str):
     """Downloading OPs.
         
         This function takes the identified AOI tiles and searches the lookup
@@ -239,6 +252,8 @@ def OP_download(tiles:list, year:int, idfile:str):
         
         Parameters
         ----------
+        op_dir : str
+            A directory where the OP files will be saved
         tiles : list
             A list of DEM tile names which intersect the AOI
         year : int
@@ -292,17 +307,15 @@ def OP_download(tiles:list, year:int, idfile:str):
     # download the identified files
     for tile_id in idlist:
         # create dir if necessary
-        if not os.path.exists("../Data/"):
-            os.mkdir("../Data")
-        if not os.path.exists("../Data/op/"):
-            os.mkdir("../Data/op/")
+        if not os.path.exists(op_dir):
+            os.mkdir(op_dir)
         
         # download the file
-        current_op = "../Data/op/" + str(tile_id) + ".zip"
+        current_op = os.path.join(op_dir, str(tile_id)+".zip")
         # if already there, unzip and then continue with the next tile
         if os.path.exists(current_op):
             with zipfile.ZipFile(current_op, 'r') as zip_ref:
-                zip_ref.extractall("../Data/op/")
+                zip_ref.extractall(op_dir)
             continue
         
         op_load = requests.get("https://geoportal.geoportal-th.de/gaialight-th/_apps/dladownload/download.php?type=op&id=" + str(tile_id))
@@ -314,20 +327,27 @@ def OP_download(tiles:list, year:int, idfile:str):
             file.write(op_load.content)
     
         with zipfile.ZipFile(current_op, 'r') as zip_ref:
-            zip_ref.extractall("../Data/op/")
+            zip_ref.extractall(op_dir)
 
 
 
-def Merging_Tiles():
+def Merging_Tiles(dem_dir:str, op_dir:str):
     """Merging function.
     
         Function for merging together DEM and OP tiles into a mergedDEM.tif and
         mergedOP.tif using gdal.Translate.
+        
+        Parameters
+        ----------
+        dem_dir : str
+            A directory where the DEM files will be searched
+        op_dir : str
+            A directory where the OP files will be searched
     """
     
     # find the xyz files 
     demlist = []
-    for file in os.scandir("../Data/dem/"):
+    for file in os.scandir(dem_dir):
         if file.name.endswith(".xyz"):
             demlist.append(file.path)
     
@@ -338,17 +358,17 @@ def Merging_Tiles():
     
     # DEM merging
     # build virtual raster and merge
-    demlist = [file.replace(".xyz",".tif") for file in demlist]
-    vrt = gdal.BuildVRT("../Data/dem/merged.vrt", demlist)
-    gdal.Translate("../Data/dem/mergedDEM.tif", vrt, xRes = 1, yRes = -1)
+    demlist = [file.replace(".xyz", ".tif") for file in demlist]
+    vrt = gdal.BuildVRT(os.path.join(dem_dir, "merged.vrt"), demlist)
+    gdal.Translate(os.path.join(dem_dir, "mergedDEM.tif"), vrt, xRes = 1, yRes = -1)
     
     # OP Merging
     oplist = []
-    for file in os.scandir("../Data/op/"):
+    for file in os.scandir(op_dir):
         if file.name.endswith(".tif"):
             oplist.append(file.path)
-    vrt = gdal.BuildVRT("../Data/op/merged.vrt", oplist)
-    gdal.Translate("../Data/op/mergedOP.tif", vrt, xRes = 0.2, yRes = -0.2)
+    vrt = gdal.BuildVRT(os.path.join(op_dir, "merged.vrt"), oplist)
+    gdal.Translate(os.path.join(op_dir, "mergedOP.tif"), vrt, xRes = 0.2, yRes = -0.2)
 
 
 
@@ -371,12 +391,13 @@ def Clip_rasters(inp:str, outp:str, options:dict):
     result = None
 
 # when executing this on it's own, specify all necessary parameters here
-if __name__ == "__main__":
+def User_input():
     # specify a root folder
-    os.chdir("F:/Marcel/Backup/Dokumente/Studium/Geoinformatik/SoSe 2021/GEO419/Abschlussaufgabe/GeoportalTH_Imagery_Download/")
+    root = os.path.join("F:", os.sep,"Marcel","Backup","Dokumente","Studium","Geoinformatik","SoSe 2021","GEO419","Abschlussaufgabe","Test")
+    os.chdir(root)
     
     # specify AOI via shapefile
-    shapefile = "../Data/shape/shape.shp"
+    shapefile = os.path.join(root,"shape.shp")
     
     # specify which DEM-type you want (dgm / dom)
     dem_format = "dgm"
@@ -385,7 +406,10 @@ if __name__ == "__main__":
     year = 2018
     
     # specify the file with Server-IDs for the grid tiles
-    idfile = "../Data/idlist.txt"
+    idfile = os.path.join(root,"idlist.txt")
     
     # execute the tool
-    GeoportalTh_execute(shapefile, year, dem_format, idfile)
+    GeoportalTh_execute(root, shapefile, year, dem_format, idfile)
+
+if __name__ == "__main__":
+    User_input()
