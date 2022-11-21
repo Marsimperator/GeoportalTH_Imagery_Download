@@ -16,9 +16,15 @@ seperate directories for data can be specified. This tool can be used as an impl
 for other applications by being imported. When executing the tool as a script, the execution 
 parameters should be specified within the User_input function.
 
+## installation
+
+Enter the following into the console linked to your python env
+
+pip install git+https://github.com/Marsimperator/GeoportalTH_Imagery_Download.git
+
 ## Required Packages
 
-	- osgeo (gdal)
+	- gdal
 	- pandas
 	- geopandas
 	- shapely

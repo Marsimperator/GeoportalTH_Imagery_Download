@@ -4,7 +4,7 @@ requires = [
     "wheel"
 ]
 dependencies = [
-    "osgeo>=3.3.3",
+    "gdal>=3.3.3",
     "geopandas>=0.8.1",
     "shapely>=1.8.0",
     "requests>=2.24.0",
