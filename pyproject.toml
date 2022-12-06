@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geothimagery"
-version = "1.1.0"
+version = "1.2.0"
 description = "A package for the automated downloading Orthophotos and Digital Elevation Models from the Thuringian Geoportal."
 readme = "README.md"
 requires-python = ">=3.8"

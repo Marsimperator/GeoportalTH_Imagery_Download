@@ -135,9 +135,12 @@ def op_tilelist_creator(root: str, id_file: str, n_jobs: int, start: int,
             for entry in names_list:
                 if entry is not None:
                     year = entry[1][-8:].replace(".zip", "")
-                    idx_a = entry[1].find("_") + 3
-                    idx_b = idx_a + 8
-                    tilename = entry[1][idx_a:idx_b]
+                    subentry = entry[1].split("_32")[1]
+                    if subentry.startswith("_"):
+                        idx_a, idx_b = 1, 9
+                    else:
+                        idx_a, idx_b = 0, 8
+                    tilename = subentry[idx_a:idx_b]
                     file.write(str(entry[0]) + "," +
                                year + "," + tilename + "\n")
 

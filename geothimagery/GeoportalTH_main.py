@@ -19,10 +19,10 @@ def geoportalth_execute(root: str, shapefile: str, data_choice: str,
                         year: int, id_file: str, dem_format: str = "dgm",
                         data_dir: str = None, dem_dir: str = None,
                         op_dir: str = None, keep_files: list = None,
-                        out_name: str = "merged", epsg: str = "EPSG: 25832"):
+                        out: str = "merged", epsg: str = "EPSG: 25832"):
     """Main execution function.
 
-        Executes a chain of modules which identify DEM and/or OP tiles, downloads
+        Executes a chain of modules which identify DEM and OP tiles, downloads
         them and uses a shapefile to clip resulting rasters to a custom extent.
         If not specified by the user, the directories where data is stored
         will be build within a pre-designed structure based on the root dir.
@@ -63,18 +63,20 @@ def geoportalth_execute(root: str, shapefile: str, data_choice: str,
             Formatting examples: ["zip", "unzipped"] or ["zip", "intermediate"]
             List content will be checked for keywords; "all" overrides others
             If not specified, all files will be deleted
-        out_name: str, optional
-            A name for the output rasters
-            dgm/dom/op and _clip will always be added to the final product name
-            The default is "merged"
+        out: str, optional
+            A name and/or path for the output rasters
+            dgm/dom/op will always be added to the final product name
+            The default name is "merged"
+            The default directories are dem_dir/op_dir
         epsg: str, optional
             An epsg code to specify the epsg for the output
             The default is "EPSG: 25832" naturally as the data is Thuringian
     """
 
     # current dev status
-    if epsg != "EPSG: 25832":
-        raise FunctionalityNotImplemented("Changing output's EPSG not yet possible.")
+    # if epsg != "EPSG: 25832":
+    #     raise FunctionalityNotImplemented(
+    #         "Changing output's EPSG not yet possible.")
     if dem_format == "las":
         raise FunctionalityNotImplemented("Las files not yet supported.")
 
@@ -85,6 +87,10 @@ def geoportalth_execute(root: str, shapefile: str, data_choice: str,
         dem_dir = os.path.join(data_dir, "dem")
     if op_dir is None:
         op_dir = os.path.join(data_dir, "op")
+
+    # set output path/name variables
+    out_name = os.path.basename(out)
+    out_path = os.path.dirname(out)  # empty string if only a name was given
 
     # get the grid-file url and years
     request, dem_year = dem_year_func(year)
@@ -98,22 +104,27 @@ def geoportalth_execute(root: str, shapefile: str, data_choice: str,
     # download, merge and clip of the tiles regarding the choice of the user
     # DEM case
     if data_choice == "dem" or data_choice == "both":
+        # set correct output path
+        if out_path == "":
+            out_path = dem_dir
+
         # download of dem tiles
         dem_zip_list, dem_unzip_list = dem_download(dem_dir, tiles,
                                                     dem_format, dem_year)
 
         # merging DEMs into one tif
-        dem_intermediates = merging_tiles(dem_unzip_list, dem_dir,
-                                          out_name, epsg)
+        dem_intermediates, vrt = merging_tiles(dem_unzip_list, dem_dir,
+                                               out_name + dem_format)
 
         # clipping DEM using the shapefile
-        clip_rasters(os.path.join(dem_dir, out_name + ".tif"),
-                     os.path.join(dem_dir,
-                                  out_name + "_" + dem_format + "_clip.tif"),
+        clip_rasters(vrt, os.path.join(out_path, out_name + "_"
+                                       + dem_format + ".tif"),
                      options={"cutlineDSName": shapefile,
                               "cropToCutline": True, "dstNodata": 0,
                               "dstSRS": epsg})
 
+        # close vrt
+        del vrt
         # delete all residual dem files which should not be kept
         delete_list = determine_files_to_delete(dem_zip_list,
                                                 dem_unzip_list,
@@ -123,19 +134,25 @@ def geoportalth_execute(root: str, shapefile: str, data_choice: str,
 
     # OP case
     elif data_choice == "op" or data_choice == "both":
+        # set correct output path
+        if out_path == "":
+            out_path = op_dir
+
         # download of op tiles
         op_zip_list, op_unzip_list = op_download(op_dir, tiles, year, id_file)
 
         # merging OPs into one tif
-        op_intermediates = merging_tiles(op_unzip_list, op_dir, out_name, epsg)
+        op_intermediates, vrt = merging_tiles(op_unzip_list, op_dir,
+                                              out_name + "_op")
 
         # clipping OP using the shapefile
-        clip_rasters(os.path.join(op_dir, out_name + ".tif"),
-                     os.path.join(op_dir, out_name + "OP_clip.tif"),
+        clip_rasters(vrt, os.path.join(out_path, out_name + "_op.tif"),
                      options={"cutlineDSName": shapefile,
                               "cropToCutline": True, "dstNodata": 0,
                               "dstSRS": epsg})
 
+        # close vrt
+        del vrt
         # delete all residual dem files which should not be kept
         delete_list = determine_files_to_delete(op_zip_list,
                                                 op_unzip_list,
@@ -278,17 +295,7 @@ def intersection(data_dir: str, dem_year: str, shapefile: str):
 
     else:
         [tiles.append(tile) for tile in intersecting.NAME]
-    # for poly in grid.iterrows():
-    #     geom = poly[1].geometry
-    #     for poly2 in polygon.iterrows():
-    #         geom2 = poly2[1].geometry
 
-    #         if geom.overlaps(geom2) is True:
-    #             if dem_year == "2010-2013":
-    #                 end = len(poly[1].DGM_1X1)
-    #                 tiles.append(poly[1].DGM_1X1[2:end])
-    #             else:
-    #                 tiles.append(poly[1].NAME)
     return tiles
 
 
@@ -527,16 +534,12 @@ def merging_tiles(tiles_list: list, tiles_dir: str, out_name: str = "merged",
             A string with the name of the output as specified by the user
             The default is "merged"
         epsg : str, optional
-            An EPSG code to transform the output to
-            The default is "EPSG: 25832"
+            The SRS of the input data
+            The default is "EPSG: 25832" for Thuringian data
         meta_files, tuple, optional
             A tuple of file extensions like "meta" which indictaes what files
             should be ignored in the tiles_list parameter
     """
-
-    if epsg != "EPSG: 25832":
-        raise FunctionalityNotImplemented(
-            "Changing output's EPSG not yet possible!")
 
     # clean the list of adjacent metadata files
     # first establish well known file extensions used by GeoportalTh
@@ -544,22 +547,14 @@ def merging_tiles(tiles_list: list, tiles_dir: str, out_name: str = "merged",
         meta_files = ("tfw", "meta")
     tiles_list = [file for file in tiles_list if not file.endswith(meta_files)]
 
-    # look into the first tile to identfy the x and y resolution to be used
-    tile = gdal.Open(os.path.join(tiles_dir, tiles_list[0]))
-    x = tile.GetGeoTransform()[1]
-    y = tile.GetGeoTransform()[5]
-
     # build virtual raster with custom name and epsg
     vrt = gdal.BuildVRT(os.path.join(tiles_dir, out_name + ".vrt"),
                         tiles_list, outputSRS=epsg)
-    # merge into one tif
-    gdal.Translate(os.path.join(tiles_dir, out_name + ".tif"),
-                   vrt, xRes=x, yRes=y)
 
     # add the intermediate vrt and tif file to a list
     intermediates = [os.path.join(tiles_dir, out_name + end)
                      for end in (".vrt", ".tif")]
-    return intermediates
+    return intermediates, vrt
 
 
 def clip_rasters(inp: str, outp: str, options: dict):
@@ -570,11 +565,11 @@ def clip_rasters(inp: str, outp: str, options: dict):
         Parameters
         ----------
         inp : str
-            Path to a input raster file
+            Path to a input raster file or VRT
         outp : str
             Path of a output raster file
         options : dict
-            Additional function parameters
+            Additional function parameters for gdal.Warp()
     """
 
     result = gdal.Warp(outp, inp, **options)
@@ -704,7 +699,6 @@ def user_input():
     root = os.path.join("F:", os.sep, "Marcel", "Backup", "Dokumente",
                         "Studium", "Geoinformatik", "SoSe 2021", "GEO419",
                         "Abschlussaufgabe", "Test")
-    os.chdir(root)
 
     # specify AOI via shapefile
     shapefile = os.path.join(root, "shape.shp")
@@ -717,7 +711,7 @@ def user_input():
     # 1997, 2008, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019,
     # 2020, 2021
     # keep in mind that not all locations have aerial imagery for all years
-    year = 2010
+    year = 2011
 
     # specify the fie with Server-IDs for the grid tiles
     id_file = os.path.join(root, "idlist.txt")
@@ -736,11 +730,13 @@ def user_input():
     # list object can contain: "zip", "unzipped", "intermediate", "all"
     # "all" overrides other entries of the list
     # the default is None
-    keep_files = ["zip"]
+    keep_files = ["intermediate", "zip"]
 
-    # specify name for the output (optional)
-    # dgm/dom/op and _clip will always be added to the final product name
-    out_name = "my_output_2010"
+    # specify a path or just a name for the output (optional)
+    # dgm/dom/op will always be added to the final product name
+    out = os.path.join("F:", os.sep, "Marcel", "Backup", "Dokumente",
+                       "Studium", "Geoinformatik", "SoSe 2021", "GEO419",
+                       "Abschlussaufgabe", "Test", "my_output_2011")
 
     # specify a custom epsg for the output (optional)
     # the default is "EPSG: 25832"
@@ -752,7 +748,7 @@ def user_input():
                         id_file=id_file, dem_format=dem_format,
                         data_dir=data_dir, dem_dir=dem_dir,
                         op_dir=op_dir, keep_files=keep_files,
-                        out_name=out_name, epsg=epsg)
+                        out=out, epsg=epsg)
 
 
 if __name__ == "__main__":
